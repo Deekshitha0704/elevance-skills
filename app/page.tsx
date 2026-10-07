@@ -1,3 +1,9 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { getLanguageLabel, supportedLanguages, translations, type Language } from "@/lib/i18n";
+
 const featuredImages = [
   "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
   "https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1200&q=80",
@@ -13,10 +19,37 @@ const stories = [
 ];
 
 export default function Home() {
+  const [language, setLanguage] = useState<Language>("en");
+
+  useEffect(() => {
+    const savedValue = window.localStorage.getItem("preferred-language");
+    if (!savedValue) return;
+
+    const nextLanguage = supportedLanguages.some((item) => item.code === savedValue)
+      ? (savedValue as Language)
+      : "en";
+
+    setLanguage(nextLanguage);
+  }, []);
+
+  const t = useMemo(() => translations[language], [language]);
   const totalViews = stories.reduce((sum, story) => sum + story.total_views, 0);
   const totalUniqueViewers = stories.reduce((sum, story) => sum + story.unique_views, 0);
   const activeStories = stories.filter((story) => story.archived === 0).length;
   const featuredStory = stories[0] ?? null;
+
+  const statCards = [
+    { label: t.storiesLive, value: `${stories.length}`, detail: `${activeStories} ${t.active}` },
+    { label: t.totalViews, value: `${totalViews}`, detail: `${totalUniqueViewers} ${t.uniqueViewers}` },
+    { label: t.highlights, value: "4", detail: t.featuredMoments },
+    { label: t.avgEngagement, value: "92%", detail: t.strongRetention },
+  ];
+
+  const quickPicks = [
+    { title: t.sunsetRun, tone: t.warmGlow, color: "from-orange-400 to-rose-400" },
+    { title: t.weekendCrew, tone: t.cityMomentum, color: "from-cyan-400 to-blue-500" },
+    { title: t.studioSet, tone: t.creativeEnergy, color: "from-violet-400 to-fuchsia-500" },
+  ];
 
   return (
     <main className="min-h-screen bg-[#f4efe8] text-zinc-900">
@@ -27,40 +60,45 @@ export default function Home() {
               S
             </div>
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Storyline</p>
-              <h1 className="text-lg font-semibold">Stories</h1>
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{t.storyline}</p>
+              <h1 className="text-lg font-semibold">{t.stories}</h1>
             </div>
           </div>
 
           <nav className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
-            <a href="#" className="transition hover:text-zinc-900">Discover</a>
-            <a href="#" className="transition hover:text-zinc-900">Highlights</a>
-            <a href="#" className="transition hover:text-zinc-900">Analytics</a>
+            <a href="#" className="transition hover:text-zinc-900">{t.discover}</a>
+            <a href="#" className="transition hover:text-zinc-900">{t.highlights}</a>
+            <a href="#" className="transition hover:text-zinc-900">{t.analytics}</a>
           </nav>
 
-          <button className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700">
-            Publish story
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700">
+              {getLanguageLabel(language)}
+            </span>
+            <Link href="/settings" className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700">
+              {t.settings}
+            </Link>
+          </div>
         </header>
 
         <section className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
           <div className="rounded-[2rem] bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-700 p-8 text-white shadow-[0_30px_60px_rgba(0,0,0,0.18)]">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.2em] text-zinc-200">
-              Live now
+              {t.liveNow}
             </div>
             <h2 className="mt-6 max-w-xl text-4xl font-semibold leading-tight sm:text-5xl">
-              Create moments that people want to revisit.
+              {t.heroTitle}
             </h2>
             <p className="mt-4 max-w-lg text-base text-zinc-300">
-              Turn everyday updates into immersive stories with analytics, highlights, and audience engagement built in.
+              {t.heroText}
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <button className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100">
-                Start a story
+                {t.startStory}
               </button>
               <button className="rounded-full border border-white/20 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
-                View dashboard
+                {t.viewDashboard}
               </button>
             </div>
           </div>
@@ -68,12 +106,12 @@ export default function Home() {
           <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-zinc-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Featured</p>
-                <h3 className="mt-2 text-xl font-semibold">Most engaging story</h3>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{t.featured}</p>
+                <h3 className="mt-2 text-xl font-semibold">{t.mostEngaging}</h3>
               </div>
               {featuredStory ? (
                 <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                  {featuredStory.unique_views} views
+                  {featuredStory.unique_views} {t.views}
                 </span>
               ) : null}
             </div>
@@ -88,28 +126,23 @@ export default function Home() {
 
             <div className="mt-5 space-y-2 text-sm text-zinc-600">
               <p className="font-medium text-zinc-900">{featuredStory?.display_name ?? "Nina Parker"}</p>
-              <p>Weekend city light walk • {featuredStory?.total_views ?? 312} total views</p>
+              <p>Weekend city light walk • {featuredStory?.total_views ?? 312} {t.totalViews.toLowerCase()}</p>
               <div className="flex items-center justify-between pt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
                 <span>24m</span>
-                <span>{activeStories} active</span>
+                <span>{activeStories} {t.active}</span>
               </div>
             </div>
           </div>
         </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-4">
-          {[
-            { label: "Stories live", value: `${stories.length}`, detail: `${activeStories} active right now` },
-            { label: "Total views", value: `${totalViews}`, detail: `${totalUniqueViewers} unique viewers` },
-            { label: "Highlights", value: "4", detail: "Featured moments" },
-            { label: "Avg. engagement", value: "92%", detail: "Strong retention" },
-          ].map((card) => (
+          {statCards.map((card) => (
             <div key={card.label} className="rounded-[1.5rem] border border-zinc-200 bg-white p-5 shadow-sm">
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{card.label}</p>
               <div className="mt-4 flex items-end justify-between">
                 <span className="text-3xl font-semibold text-zinc-900">{card.value}</span>
                 <span className="rounded-full bg-orange-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-orange-700">
-                  live
+                  {t.liveNow}
                 </span>
               </div>
               <p className="mt-3 text-sm text-zinc-600">{card.detail}</p>
@@ -121,11 +154,11 @@ export default function Home() {
           <div className="rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-zinc-200">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">Feed</p>
-                <h3 className="mt-2 text-2xl font-semibold">Latest stories</h3>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{t.feed}</p>
+                <h3 className="mt-2 text-2xl font-semibold">{t.latestStories}</h3>
               </div>
               <button className="rounded-full border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50">
-                Filter
+                {t.filter}
               </button>
             </div>
 
@@ -166,18 +199,14 @@ export default function Home() {
           <aside className="rounded-[2rem] bg-zinc-900 p-6 text-white shadow-[0_25px_45px_rgba(0,0,0,0.2)]">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">Highlights</p>
-                <h3 className="mt-2 text-2xl font-semibold">Quick picks</h3>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">{t.highlights}</p>
+                <h3 className="mt-2 text-2xl font-semibold">{t.quickPicks}</h3>
               </div>
-              <span className="text-xs uppercase tracking-[0.2em] text-amber-300">New</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-amber-300">{t.newLabel}</span>
             </div>
 
             <div className="mt-6 space-y-4">
-              {[
-                { title: "Sunset run", tone: "Warm glow", color: "from-orange-400 to-rose-400" },
-                { title: "Weekend crew", tone: "City momentum", color: "from-cyan-400 to-blue-500" },
-                { title: "Studio set", tone: "Creative energy", color: "from-violet-400 to-fuchsia-500" },
-              ].map((item) => (
+              {quickPicks.map((item) => (
                 <div key={item.title} className="rounded-[1.5rem] border border-white/10 bg-white/5 p-3">
                   <div className={`mb-3 h-20 rounded-2xl bg-gradient-to-br ${item.color}`} />
                   <div className="flex items-center justify-between gap-3">
@@ -186,7 +215,7 @@ export default function Home() {
                       <p className="text-sm text-zinc-300">{item.tone}</p>
                     </div>
                     <span className="rounded-full bg-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.15em] text-zinc-200">
-                      Saved
+                      {t.saved}
                     </span>
                   </div>
                 </div>
