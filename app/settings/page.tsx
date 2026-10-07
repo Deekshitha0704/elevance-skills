@@ -3,77 +3,115 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getLanguageLabel, supportedLanguages, translations, type Language } from "@/lib/i18n";
+import { savePreferredLanguage, usePreferredLanguage } from "@/lib/use-preferred-language";
 
-const registeredEmail = "student@elevance.example";
-const registeredMobile = "+1 (555) 010-2048";
-const otpLifetimeMs = 120000;
-const maxFailedAttempts = 3;
-const lockoutMs = 300000;
-
-function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
+const otpLifetimeMs = 5 * 60 * 1000;
+const maxFailedAttempts = 5;
+const lockoutMs = 15 * 60 * 1000;
 
 export default function SettingsPage() {
-  const [language, setLanguage] = useState<Language>("en");
+  const language = usePreferredLanguage();
   const [candidateLanguage, setCandidateLanguage] = useState<Language>("en");
   const [otp, setOtp] = useState("");
   const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
-  const [generatedOtp, setGeneratedOtp] = useState("123456");
+  const [challengeId, setChallengeId] = useState<string | null>(null);
+  const [destination, setDestination] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const [countdown, setCountdown] = useState(120);
+  const [countdown, setCountdown] = useState(0);
   const [failedAttempts, setFailedAttempts] = useState(0);
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockUntil, setLockUntil] = useState<number | null>(null);
+  const [lockCountdown, setLockCountdown] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const isLocked = lockCountdown > 0;
 
   useEffect(() => {
-    const savedValue = typeof window !== "undefined" ? window.localStorage.getItem("preferred-language") : null;
-    const initial = (savedValue as Language) || "en";
-    setLanguage(initial);
-    setCandidateLanguage(initial);
+    fetch("/api/language/otp")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json() as Promise<{ language: Language }>;
+      })
+      .then(({ language: savedLanguage }) => {
+        if (!supportedLanguages.some((item) => item.code === savedLanguage)) return;
+        setCandidateLanguage(savedLanguage);
+        savePreferredLanguage(savedLanguage);
+      })
+      .catch(() => {
+        setErrorMessage(translations.en.signInRequired);
+      });
   }, []);
 
   useEffect(() => {
     if (!otpSentAt) return;
     const timer = window.setInterval(() => {
-      const remaining = Math.max(0, Math.ceil((otpLifetimeMs - (Date.now() - otpSentAt)) / 1000));
+      const remaining = Math.max(0, Math.ceil((otpSentAt + otpLifetimeMs - Date.now()) / 1000));
       setCountdown(remaining);
       if (remaining <= 0) {
         setStatusMessage(translations[language].otpExpired);
-        setErrorMessage("");
+        setChallengeId(null);
+        setOtpSentAt(null);
       }
     }, 1000);
 
     return () => window.clearInterval(timer);
   }, [otpSentAt, language]);
 
+  useEffect(() => {
+    if (!isLocked) return;
+    const timer = window.setInterval(() => setLockCountdown((remaining) => Math.max(0, remaining - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [isLocked]);
+
   const t = useMemo(() => translations[language], [language]);
 
-  const sendOtp = (nextLanguage: Language) => {
-    if (isLocked) {
-      const remaining = lockUntil ? Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000)) : 0;
-      setErrorMessage(`${translations[language].locked} ${remaining}s`);
-      return;
-    }
+  const getApiError = (code: string | undefined, status: number, dictionary: typeof t) => {
+    if (code === "contact_missing") return dictionary.contactMissing;
+    if (code === "delivery_unavailable" || status === 503) return dictionary.otpDeliveryUnavailable;
+    if (code === "locked") return dictionary.locked;
+    if (code === "cooldown" || code === "send_limit" || status === 429) return dictionary.otpRateLimited;
+    if (code === "expired") return dictionary.otpExpired;
+    if (code === "incorrect") return dictionary.otpInvalid;
+    if (status === 401) return dictionary.signInRequired;
+    return dictionary.otpInvalid;
+  };
 
-    const newOtp = generateOtp();
-    setGeneratedOtp(newOtp);
-    setOtpSentAt(Date.now());
-    setCountdown(120);
-    setOtp("");
+  const sendOtp = async (nextLanguage: Language) => {
+    if (isLocked || isLoading) return;
+    setIsLoading(true);
     setErrorMessage("");
-    setStatusMessage(
-      nextLanguage === "fr"
-        ? `${translations[language].otpSent} ${translations[language].emailLabel}: ${registeredEmail}`
-        : `${translations[language].otpSent} ${translations[language].mobileLabel}: ${registeredMobile}`
-    );
+    setStatusMessage("");
+    try {
+      const response = await fetch("/api/language/otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: nextLanguage }),
+      });
+      const result = await response.json() as { challengeId?: string; destination?: string; expiresAt?: string; code?: string };
+      if (!response.ok || !result.challengeId || !result.expiresAt) {
+        setErrorMessage(getApiError(result.code, response.status, translations[language]));
+        if (result.code === "locked") {
+          setLockCountdown(lockoutMs / 1000);
+        }
+        return;
+      }
+
+      setChallengeId(result.challengeId);
+      setDestination(result.destination ?? "");
+      setOtpSentAt(Date.parse(result.expiresAt) - otpLifetimeMs);
+      setCountdown(otpLifetimeMs / 1000);
+      setOtp("");
+      const channelLabel = nextLanguage === "fr" ? translations[language].emailLabel : translations[language].mobileLabel;
+      setStatusMessage(`${translations[language].otpSent} ${channelLabel}: ${result.destination ?? ""}`);
+    } catch {
+      setErrorMessage(translations[language].otpDeliveryUnavailable);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleLanguageChange = (nextLanguage: Language) => {
     setCandidateLanguage(nextLanguage);
     if (nextLanguage === language) {
-      setStatusMessage(translations[language].success);
+      setStatusMessage("");
       setErrorMessage("");
       return;
     }
@@ -81,62 +119,42 @@ export default function SettingsPage() {
     sendOtp(nextLanguage);
   };
 
-  const verifyOtp = () => {
-    if (isLocked) {
-      const remaining = lockUntil ? Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000)) : 0;
-      setErrorMessage(`${translations[language].locked} ${remaining}s`);
-      return;
-    }
-
-    if (!otpSentAt) {
-      setErrorMessage(translations[language].otpSent);
-      return;
-    }
-
-    const otpAge = Date.now() - otpSentAt;
-    if (otpAge > otpLifetimeMs) {
-      setErrorMessage(translations[language].otpExpired);
-      return;
-    }
-
-    if (otp.trim() !== generatedOtp) {
-      const nextAttempts = failedAttempts + 1;
-      setFailedAttempts(nextAttempts);
-      setErrorMessage(translations[language].otpInvalid);
-
-      if (nextAttempts >= maxFailedAttempts) {
-        const nextLockUntil = Date.now() + lockoutMs;
-        setIsLocked(true);
-        setLockUntil(nextLockUntil);
-        setErrorMessage(translations[language].locked);
-      }
-      return;
-    }
-
-    window.localStorage.setItem("preferred-language", candidateLanguage);
-    setLanguage(candidateLanguage);
-    setStatusMessage(translations[candidateLanguage].success);
+  const verifyOtp = async () => {
+    if (!challengeId || isLoading) return;
+    setIsLoading(true);
     setErrorMessage("");
-    setFailedAttempts(0);
-    setIsLocked(false);
-    setLockUntil(null);
-    setOtp("");
-  };
-
-  useEffect(() => {
-    if (!isLocked || !lockUntil) return;
-    const timer = window.setInterval(() => {
-      if (Date.now() >= lockUntil) {
-        setIsLocked(false);
-        setLockUntil(null);
-        setFailedAttempts(0);
-        setErrorMessage("");
-        window.clearInterval(timer);
+    try {
+      const response = await fetch("/api/language/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challengeId, code: otp }),
+      });
+      const result = await response.json() as { language?: Language; code?: string; attemptsRemaining?: number; retryAfterSeconds?: number };
+      if (!response.ok || !result.language) {
+        setErrorMessage(getApiError(result.code, response.status, translations[language]));
+        if (typeof result.attemptsRemaining === "number") setFailedAttempts(maxFailedAttempts - result.attemptsRemaining);
+        if (result.code === "locked") {
+          setFailedAttempts(maxFailedAttempts);
+          setLockCountdown(result.retryAfterSeconds ?? lockoutMs / 1000);
+        }
+        return;
       }
-    }, 1000);
 
-    return () => window.clearInterval(timer);
-  }, [isLocked, lockUntil]);
+      setCandidateLanguage(result.language);
+      savePreferredLanguage(result.language);
+      setStatusMessage(translations[result.language].success);
+      setChallengeId(null);
+      setDestination("");
+      setOtp("");
+      setFailedAttempts(0);
+      setOtpSentAt(null);
+      setCountdown(0);
+    } catch {
+      setErrorMessage(translations[language].otpDeliveryUnavailable);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <main className="min-h-screen bg-[#f7f3ee] p-6 text-zinc-900">
@@ -146,9 +164,14 @@ export default function SettingsPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">{t.appName}</p>
             <h1 className="text-xl font-semibold">{t.settings}</h1>
           </div>
-          <Link href="/" className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
-            {t.dashboard}
-          </Link>
+          <nav className="flex items-center gap-2">
+            <Link href="/subscriptions" className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800">
+              {t.subscriptions}
+            </Link>
+            <Link href="/" className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
+              {t.dashboard}
+            </Link>
+          </nav>
         </header>
 
         <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
@@ -182,9 +205,7 @@ export default function SettingsPage() {
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
               <p className="font-medium text-zinc-900">{t.otpVerification}</p>
               <p className="mt-2">{candidateLanguage === "fr" ? t.otpForFrench : t.otpForOtherLanguages}</p>
-              <p className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">
-                {candidateLanguage === "fr" ? registeredEmail : registeredMobile}
-              </p>
+              {destination && <p className="mt-2 text-xs uppercase tracking-[0.2em] text-zinc-500">{destination}</p>}
             </div>
 
             <div className="mt-6 flex flex-col gap-3">
@@ -194,6 +215,7 @@ export default function SettingsPage() {
                 inputMode="numeric"
                 value={otp}
                 maxLength={6}
+                disabled={!challengeId || isLoading || isLocked}
                 onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
                 className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none ring-0 transition focus:border-zinc-500"
                 placeholder="123456"
@@ -204,12 +226,13 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={() => sendOtp(candidateLanguage)}
+                disabled={isLoading || isLocked || (Boolean(challengeId) && countdown > 240)}
                 className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
               >
-                {t.requestNewOtp}
+                {isLoading ? t.otpVerification : t.requestNewOtp}
               </button>
               <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-                {countdown}s {t.secondsLeft}
+                {challengeId ? `${countdown}s ${t.secondsLeft}` : ""}
               </span>
             </div>
 
@@ -217,7 +240,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={verifyOtp}
-                disabled={isLocked}
+                disabled={isLocked || isLoading || !challengeId || otp.length !== 6}
                 className="rounded-full bg-zinc-900 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-zinc-400"
               >
                 {t.verifyAndApply}
@@ -234,8 +257,6 @@ export default function SettingsPage() {
               <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">{t.profile}</p>
               <h3 className="mt-2 text-2xl font-semibold">{t.userWelcome}</h3>
               <div className="mt-5 space-y-3 text-sm text-zinc-300">
-                <div className="flex justify-between gap-3"><span>{t.emailLabel}</span><span className="text-white">{registeredEmail}</span></div>
-                <div className="flex justify-between gap-3"><span>{t.mobileLabel}</span><span className="text-white">{registeredMobile}</span></div>
                 <div className="flex justify-between gap-3"><span>{t.language}</span><span className="text-white">{getLanguageLabel(language)}</span></div>
               </div>
             </div>

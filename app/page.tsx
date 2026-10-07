@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { getLanguageLabel, supportedLanguages, translations, type Language } from "@/lib/i18n";
+import { useMemo } from "react";
+import { getLanguageLabel, translations } from "@/lib/i18n";
+import { usePreferredLanguage } from "@/lib/use-preferred-language";
 
 const featuredImages = [
   "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80",
@@ -19,19 +20,7 @@ const stories = [
 ];
 
 export default function Home() {
-  const [language, setLanguage] = useState<Language>("en");
-
-  useEffect(() => {
-    const savedValue = window.localStorage.getItem("preferred-language");
-    if (!savedValue) return;
-
-    const nextLanguage = supportedLanguages.some((item) => item.code === savedValue)
-      ? (savedValue as Language)
-      : "en";
-
-    setLanguage(nextLanguage);
-  }, []);
-
+  const language = usePreferredLanguage();
   const t = useMemo(() => translations[language], [language]);
   const totalViews = stories.reduce((sum, story) => sum + story.total_views, 0);
   const totalUniqueViewers = stories.reduce((sum, story) => sum + story.unique_views, 0);
@@ -75,6 +64,9 @@ export default function Home() {
             <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700">
               {getLanguageLabel(language)}
             </span>
+            <Link href="/subscriptions" className="hidden rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-800 sm:inline-flex">
+              {t.subscriptions}
+            </Link>
             <Link href="/settings" className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-700">
               {t.settings}
             </Link>
@@ -94,9 +86,9 @@ export default function Home() {
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
-              <button className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100">
-                {t.startStory}
-              </button>
+              <Link href="/create" className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-100">
+                {t.createPost}
+              </Link>
               <button className="rounded-full border border-white/20 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
                 {t.viewDashboard}
               </button>
